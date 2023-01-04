@@ -1,0 +1,234 @@
+---
+- name: Check if Drupal has been installed yet
+  command: "drush --root={{ webroot }} -y core-status bootstrap"
+  register: drupal_installed
+  when: cms == 'Drupal'
+
+- name: Check if WordPress has been installed yet
+  command: "wp core is-installed --path={{ webroot }}"
+  register: wordpress_installed
+  when: cms == 'WordPress'
+  become_user: "{{ run_as_user }}"
+  failed_when: false
+
+- name: Get the "from" site
+  set_fact:
+    from_site: "{{ from|default(canonical_primary_url) }}"
+
+- name: create a list of db names
+  set_fact:
+    canonical_db_names:
+      - "{{ canonical_cms_db_name }}"
+      - "{{ canonical_crm_db_name }}"
+      - "{{ canonical_crm_logging_db_name | default(canonical_crm_db_name, true) }}"
+    db_names:
+      - "{{ cms_db_name }}"
+      - "{{ crm_db_name }}"
+      - "{{ crm_logging_db_name | default(crm_db_name, true) }}"
+
+- name: create a list of unique db names, removing blanks
+  set_fact:
+    canonical_db_names_unique: "{{ canonical_db_names | select() | unique }}"
+    db_names_unique: "{{ db_names | select() | unique }}"
+
+# Normally, sql-dumps is parallel with the webroot.  In certain situations (when gitroot is above webroot) this folder may not exists and creating it screws up git cloning.  
+# In that situation, we'll use a temp directory and create sql-dumps next time, once we have a .gitignore in place.
+- name: Check if .gitignore exists
+  stat:
+    path: "{{ gitroot }}/.gitignore"
+  register: gitignore
+
+- name: Create sql-dumps folder
+  file:
+    owner: "{{ run_as_user }}"
+    group: "{{ run_as_user }}"
+    path: "{{ sqldumps_path }}"
+    state: directory
+    mode: 02770
+  become_user: "{{ run_as_user }}"
+  when: gitignore.stat.exists
+
+- name: Check if sql-dumps dir exists
+  stat:
+    path: "{{ sqldumps_path }}"
+  register: dumps_dir
+
+- name: Set the sql-dumps directory var
+  set_fact:
+    sql_dumps_dir: "{{ sqldumps_path if dumps_dir.stat.exists else '/tmp' }}"
+
+
+# MySQL restore
+- name: Check if db dump files already exist
+  stat:
+    path: "{{ sql_dumps_dir }}/{{ canonical_cms_db_name }}.sql"
+  register: db_dump
+
+# Return yes when we FAIL the assertion, meaning "restore a db backup".
+- name: Update the dump if a canonical db exists unless a dump already exists and is < 24hrs old
+  assert:
+    that:
+      - "(canonical_hostname is none and db_sync_strategy != 'pantheon') or (db_dump.stat.exists == true and (ansible_date_time.epoch|int - db_dump.stat.mtime) < (60 * 60 * 24))"
+    fail_msg: "yes"
+  failed_when: false
+  register: acquire_db_backup
+
+# Acquire a backup from rsync.net
+- block:
+  # This is so fucking ugly. Newer versions of borgbackup eliminate the need for piping to tail and cut, but we probably won't have them until Debian 10 ships.
+  - name: Get the latest backup archive name
+    shell: borg list --remote-path /usr/local/bin/borg1/borg1 {{ rsyncnet_user }}@{{ rsyncnet_server }}:{{ canonical_server_client + '-' + canonical_hostname }} | tail -n1 | cut -f 1 -d ' '
+    environment:
+      BORG_PASSPHRASE: "{{ lookup('passwordstore', canonical_server_client + '/' + canonical_hostname + '/borg/remote') }}"
+    args:
+      chdir: "{{ sql_dumps_dir }}"
+    register: archive_name
+    changed_when: false
+    become_user: root
+
+  # Download the borg backup of the db dump if we need an update and the borg backup exists.
+  # Also very ugly.  Borg doesn't allow specifying a destination path, so we use strip-components, but need to figure out how many components the path has.
+  - name: Get depth of backup path.
+    set_fact:
+      path_depth: "{{ canonical_database_backup_path | default('var/backups/mysql/sqldump',true) | regex_replace('[^\/]', '') | count + 1 }}"
+
+  - name: Download the latest copy of the database
+    shell: borg extract --strip-components {{ path_depth }} --remote-path /usr/local/bin/borg1/borg1 {{ rsyncnet_user }}@{{ rsyncnet_server }}:{{ canonical_server_client + '-' + canonical_hostname }}::{{ archive_name.stdout }} {{ canonical_database_backup_path | default("var/backups/mysql/sqldump",true) }}/{{ db_name }}.sql.gz
+    args:
+      chdir: "{{ sql_dumps_dir }}"
+    environment:
+      BORG_PASSPHRASE: "{{ lookup('passwordstore', canonical_server_client + '/' + canonical_hostname + '/borg/remote') }}"
+    with_items: "{{ canonical_db_names_unique }}"
+    register: db_downloaded
+    loop_control:
+      loop_var: db_name
+    become_user: root
+
+  - name: Decompress the db backups
+    shell: gunzip --force {{ item }}.sql.gz
+    args:
+      chdir: "{{ sql_dumps_dir }}"
+    with_items: "{{ canonical_db_names_unique }}"
+    when: acquire_db_backup.msg == "yes"
+    become_user: root
+  when: acquire_db_backup.msg == "yes" and db_sync_strategy == 'rsyncnet'
+
+# Acquire a backup from a mysqldump
+- block:
+  - name: Make a db backup
+    mysql_db:
+      state: dump
+      login_user: "{{ canonical_db_user }}"
+      login_password: "{{ lookup('passwordstore', canonical_server_client + '/' + canonical_hostname + '/' + canonical_bare_url + '/mysql') }}"
+      login_host: "{{ remote_mysql_host }}"
+      name: "{{ db_name }}"
+      target: "/tmp/{{ db_name }}.sql"
+      dump_extra_args: --single-transaction=TRUE
+    with_items: "{{ canonical_db_names_unique }}"
+    loop_control:
+      loop_var: db_name
+
+  - name: fetch db backups
+    fetch:
+      src: "/tmp/{{ db_name }}.sql"
+      dest: "{{ sql_dumps_dir }}/{{ db_name }}.sql"
+      flat: yes
+    with_items: "{{ canonical_db_names_unique }}"
+    become_user: "{{ run_as_user }}"
+    loop_control:
+      loop_var: db_name
+
+  when: acquire_db_backup.msg == "yes" and db_sync_strategy == 'livedump'
+  delegate_to: "{{ canonical_server }}"
+  remote_user: "{{ canonical_run_as_user }}"
+  become: no
+
+# Acquire a backup from Pantheon
+- block:
+  - name: Log in to Terminus
+    command: "terminus auth:login --machine-token={{ lookup('passwordstore', canonical_server_client + '/pantheonmachinetoken') }}"
+
+  - name: Create a Pantheon backup
+    command: "terminus backup:create {{ pantheon_site_code }}.live --element=db --keep-for=1"
+
+  - name: Retrieve the Pantheon backup
+    command: "terminus backup:get {{ pantheon_site_code }}.live --element=db --to={{ sql_dumps_dir }}/{{ canonical_cms_db_name }}.sql.gz"
+
+  - name: Decompress the db backup
+    shell: gunzip --force {{ canonical_cms_db_name }}.sql.gz
+    args:
+      chdir: "{{ sql_dumps_dir }}"
+  when: acquire_db_backup.msg == "yes" and db_sync_strategy == 'pantheon'
+  become_user: "{{ run_as_user }}"
+
+- name: Set owner/group for db dumps
+  ansible.builtin.file:
+    path: "{{ sql_dumps_dir }}/{{ db_name }}.sql"
+    owner: "{{ run_as_user }}"
+    group: "{{ run_as_user }}"
+    mode: 0660
+  with_items: "{{ canonical_db_names_unique }}"
+  become_user: root
+  loop_control:
+    loop_var: db_name
+
+- name: Remove trigger definers from Civi db
+  command: perl -pi -e 's#\/\*\!5001. DEFINER=`.*`@`.*?\*\/##g' {{ canonical_crm_db_name }}.sql
+  args:
+    chdir: "{{ sql_dumps_dir }}"
+  become_user: root
+  when: civicrm == 'Yes'
+
+- name: Remove function definers from Civi db
+  command: perl -pi -e 's/CREATE DEFINER.*FUNCTION/CREATE FUNCTION/g' {{ canonical_crm_db_name }}.sql
+  args:
+    chdir: "{{ sql_dumps_dir }}"
+  become_user: root
+  when: civicrm == 'Yes'
+
+- name: Fix logging db triggers when using a separate db
+  command: perl -pi -e 's/{{ canonical_crm_logging_db_name }}/{{ crm_logging_db_name }}/g' {{ canonical_crm_db_name }}.sql
+  args:
+    chdir: "{{ sql_dumps_dir }}"
+  when: canonical_crm_logging_db_name is not none and civicrm == 'Yes'
+  become_user: root
+
+- name: Ensure the CMS is installed
+  stat:
+    path: "{{ webroot }}/index.php"
+  register: cms_exists
+
+- name: Import the databases
+  mysql_db:
+    name: "{{ item.1 }}"
+    target: "{{ sql_dumps_dir }}/{{ item.0 }}.sql"
+    state: import
+    login_user: "{{ db_user }}"
+    login_password: "{{ lookup('passwordstore', client + '/' + hostname + '/' + bare_url + '/mysql') }}"
+  when: item.1 is defined and cms_exists.stat is defined and cms_exists.stat.exists == true and canonical_primary_url
+  become_user: root
+  with_together:
+   - "{{ canonical_db_names_unique }}"
+   - "{{ db_names_unique }}"
+
+- name: Turn off Nagios cron check on dev/test sites
+  command: "drush --root={{ webroot }} -y vset nagios_func_cron 0"
+  when: cms == 'Drupal' and env != 'Live' and drupal_installed is search("Successful")
+
+- name: Fix wp-load setting
+  command: wp eval '$c=[civi_wp()->admin, "add_wpload_setting"]; if (is_callable($c)) $c();' --path={{ webroot }}
+  become_user: "{{ run_as_user }}"
+  when: cms == 'WordPress' and wordpress_installed.rc == 0 and civicrm == 'Yes'
+  ignore_errors: yes
+
+- name: Do a search/replace for the primary URL
+  command: "wp search-replace {{ canonical_primary_url }} {{ primary_url }} --path={{ webroot }}"
+  become_user: "{{ run_as_user }}"
+  when: cms == 'WordPress' and wordpress_installed.rc == 0
+  ignore_errors: yes
+
+- name: Disable wp plugins that screw with login (on dev)
+  command: wp plugin deactivate advanced-nocaptcha-recaptcha --path={{ webroot }}
+  become_user: "{{ run_as_user }}"
+  failed_when: false
+  when: cms == 'WordPress' and wordpress_installed.rc == 0 and env == 'Dev'
