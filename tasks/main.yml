@@ -178,22 +178,22 @@
 
 - name: Turn off Nagios cron check on dev/test sites
   command: "drush --root={{ webroot }} -y vset nagios_func_cron 0"
-  when: cms == 'Drupal' and env != 'Live' and drupal_installed is search("Successful")
+  when: cms == 'Drupal' and env != 'Live'
 
 - name: Fix wp-load setting
   command: wp eval '$c=[civi_wp()->admin, "add_wpload_setting"]; if (is_callable($c)) $c();' --path={{ webroot }}
   become_user: "{{ run_as_user }}"
-  when: cms == 'WordPress' and wordpress_installed.rc == 0 and civicrm == 'Yes'
+  when: cms == 'WordPress' and civicrm == 'Yes'
   ignore_errors: yes
 
 - name: Do a search/replace for the primary URL
   command: "wp search-replace {{ canonical_primary_url }} {{ primary_url }} --path={{ webroot }}"
   become_user: "{{ run_as_user }}"
-  when: cms == 'WordPress' and wordpress_installed.rc == 0
+  when: cms == 'WordPress'
   ignore_errors: yes
 
 - name: Disable wp plugins that screw with login (on dev)
   command: wp plugin deactivate advanced-nocaptcha-recaptcha --path={{ webroot }}
   become_user: "{{ run_as_user }}"
   failed_when: false
-  when: cms == 'WordPress' and wordpress_installed.rc == 0 and env == 'Dev'
+  when: cms == 'WordPress' and env == 'Dev'
