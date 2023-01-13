@@ -170,7 +170,7 @@
     state: import
     login_user: "{{ db_user }}"
     login_password: "{{ lookup('passwordstore', client + '/' + hostname + '/' + bare_url + '/mysql') }}"
-  when: item.1 is defined and cms_exists.stat is defined and cms_exists.stat.exists == true and canonical_primary_url
+  when: item.1 is defined and canonical_primary_url
   become_user: root
   with_together:
    - "{{ canonical_db_names_unique }}"
