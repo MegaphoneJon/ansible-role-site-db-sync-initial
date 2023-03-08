@@ -193,7 +193,7 @@
   ignore_errors: yes
 
 - name: Disable wp plugins that screw with login (on dev)
-  command: wp plugin deactivate advanced-nocaptcha-recaptcha --path={{ webroot }}
+  command: wp plugin deactivate advanced-nocaptcha-recaptcha ithemes-security-pro --path={{ webroot }}
   become_user: "{{ run_as_user }}"
   failed_when: false
   when: cms == 'WordPress' and env == 'Dev'
