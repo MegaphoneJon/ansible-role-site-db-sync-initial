@@ -27,6 +27,7 @@
     state: directory
     mode: 02770
   become_user: "{{ run_as_user }}"
+  become: yes
 
 
 # MySQL restore
@@ -34,6 +35,8 @@
   stat:
     path: "{{ sqldumps_path }}/{{ canonical_cms_db_name }}.sql"
   register: db_dump
+  become_user: "{{ run_as_user }}"
+  become: yes
 
 # Return yes when we FAIL the assertion, meaning "restore a db backup".
 - name: Update the dump if a canonical db exists unless a dump already exists and is < 24hrs old
@@ -54,7 +57,7 @@
       chdir: "{{ sqldumps_path }}"
     register: archive_name
     changed_when: false
-    become_user: root
+
 
   # Download the borg backup of the db dump if we need an update and the borg backup exists.
   # Also very ugly.  Borg doesn't allow specifying a destination path, so we use strip-components, but need to figure out how many components the path has.
@@ -72,7 +75,6 @@
     register: db_downloaded
     loop_control:
       loop_var: db_name
-    become_user: root
 
   - name: Decompress the db backups
     shell: gunzip --force {{ item }}.sql.gz
@@ -80,8 +82,9 @@
       chdir: "{{ sqldumps_path }}"
     with_items: "{{ canonical_db_names_unique }}"
     when: acquire_db_backup.msg == "yes"
-    become_user: root
   when: acquire_db_backup.msg == "yes" and db_sync_strategy == 'rsyncnet'
+  become: yes
+  become_user: root
 
 # Acquire a backup from a mysqldump
 - block:
@@ -138,6 +141,7 @@
     group: "{{ run_as_user }}"
     mode: 0660
   with_items: "{{ canonical_db_names_unique }}"
+  become: yes
   become_user: root
   loop_control:
     loop_var: db_name
@@ -146,14 +150,12 @@
   command: perl -pi -e 's#\/\*\!5001. DEFINER=`.*`@`.*?\*\/##g' {{ canonical_crm_db_name }}.sql
   args:
     chdir: "{{ sqldumps_path }}"
-  become_user: root
   when: civicrm == 'Yes'
 
 - name: Remove function definers from Civi db
   command: perl -pi -e 's/CREATE DEFINER.*FUNCTION/CREATE FUNCTION/g' {{ canonical_crm_db_name }}.sql
   args:
     chdir: "{{ sqldumps_path }}"
-  become_user: root
   when: civicrm == 'Yes'
 
 - name: Fix logging db triggers when using a separate db
@@ -161,7 +163,6 @@
   args:
     chdir: "{{ sqldumps_path }}"
   when: canonical_crm_logging_db_name is not none and civicrm == 'Yes'
-  become_user: root
 
 - name: Import the databases
   mysql_db:
@@ -171,7 +172,6 @@
     login_user: "{{ db_user }}"
     login_password: "{{ lookup('passwordstore', client + '/' + hostname + '/' + bare_url + '/mysql') }}"
   when: item.1 is defined and canonical_primary_url
-  become_user: root
   with_together:
    - "{{ canonical_db_names_unique }}"
    - "{{ db_names_unique }}"
@@ -182,7 +182,6 @@
 
 - name: Fix wp-load setting
   command: wp eval '$c=[civi_wp()->admin, "add_wpload_setting"]; if (is_callable($c)) $c();' --path={{ webroot }}
-  become_user: "{{ run_as_user }}"
   when: cms == 'WordPress' and civicrm == 'Yes'
   ignore_errors: yes
 
