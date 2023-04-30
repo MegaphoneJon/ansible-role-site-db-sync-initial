@@ -2,6 +2,7 @@
 - name: Get the "from" site
   set_fact:
     from_site: "{{ from|default(canonical_primary_url) }}"
+    client: "{{ short_name | default(canonical_server_client, true) }}"
 
 - name: create a list of db names
   set_fact:
@@ -50,9 +51,9 @@
 # Acquire a backup from rsync.net
 - block:
   - name: Get the latest backup archive name
-    shell: borg list --last 1 --short --remote-path /usr/local/bin/borg1/borg1 {{ rsyncnet_user }}@{{ rsyncnet_server }}:{{ canonical_server_client + '-' + canonical_hostname }}
+    shell: borg list --last 1 --short --remote-path /usr/local/bin/borg1/borg1 {{ rsyncnet_user }}@{{ rsyncnet_server }}:{{ client + '-' + canonical_hostname }}
     environment:
-      BORG_PASSPHRASE: "{{ lookup('passwordstore', canonical_server_client + '/' + canonical_hostname + '/borg/remote') }}"
+      BORG_PASSPHRASE: "{{ lookup('passwordstore', client + '/' + canonical_hostname + '/borg/remote') }}"
     args:
       chdir: "{{ sqldumps_path }}"
     register: archive_name
@@ -66,11 +67,11 @@
       path_depth: "{{ canonical_database_backup_path | default('var/backups/mysql/sqldump',true) | regex_replace('[^\/]', '') | count + 1 }}"
 
   - name: Download the latest copy of the database
-    shell: borg extract --strip-components {{ path_depth }} --remote-path /usr/local/bin/borg1/borg1 {{ rsyncnet_user }}@{{ rsyncnet_server }}:{{ canonical_server_client + '-' + canonical_hostname }}::{{ archive_name.stdout }} {{ canonical_database_backup_path | default("var/backups/mysql/sqldump",true) }}/{{ db_name }}.sql.gz
+    shell: borg extract --strip-components {{ path_depth }} --remote-path /usr/local/bin/borg1/borg1 {{ rsyncnet_user }}@{{ rsyncnet_server }}:{{ short_name + '-' + canonical_hostname }}::{{ archive_name.stdout }} {{ canonical_database_backup_path | default("var/backups/mysql/sqldump",true) }}/{{ db_name }}.sql.gz
     args:
       chdir: "{{ sqldumps_path }}"
     environment:
-      BORG_PASSPHRASE: "{{ lookup('passwordstore', canonical_server_client + '/' + canonical_hostname + '/borg/remote') }}"
+      BORG_PASSPHRASE: "{{ lookup('passwordstore', short_name + '/' + canonical_hostname + '/borg/remote') }}"
     with_items: "{{ canonical_db_names_unique }}"
     register: db_downloaded
     loop_control:
@@ -92,7 +93,7 @@
     mysql_db:
       state: dump
       login_user: "{{ canonical_db_user }}"
-      login_password: "{{ lookup('passwordstore', canonical_server_client + '/' + canonical_hostname + '/' + canonical_bare_url + '/mysql') }}"
+      login_password: "{{ lookup('passwordstore', short_name + '/' + canonical_hostname + '/' + canonical_bare_url + '/mysql') }}"
       login_host: "{{ remote_mysql_host }}"
       name: "{{ db_name }}"
       target: "/tmp/{{ db_name }}.sql"
@@ -119,7 +120,7 @@
 # Acquire a backup from Pantheon
 - block:
   - name: Log in to Terminus
-    command: "terminus auth:login --machine-token={{ lookup('passwordstore', canonical_server_client + '/pantheonmachinetoken') }}"
+    command: "terminus auth:login --machine-token={{ lookup('passwordstore', short_name + '/pantheonmachinetoken') }}"
 
   - name: Create a Pantheon backup
     command: "terminus backup:create {{ pantheon_site_code }}.live --element=db --keep-for=1"
