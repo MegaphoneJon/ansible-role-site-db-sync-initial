@@ -1,8 +1,21 @@
 ---
-- name: Get the "from" site
+- name: Set some initial facts
   set_fact:
-    from_site: "{{ from|default(canonical_primary_url) }}"
+    # sync_type not used here, it's present tgo pave the way for remerging with site-db-sync
+    sync_type: "{{ sync_type | default('quick', true) }}"
     client: "{{ short_name | default(canonical_server_client, true) }}"
+
+- name: Set the repo name and passphase
+  set_fact:
+    repo_name: "{{ client + '-' + canonical_hostname }}"
+    passphrase: "{{ lookup('passwordstore', client + '/' + canonical_hostname + '/borg/remote') }}"
+  when: db_sync_strategy == 'rsyncnet'
+
+- name: repo name and passhphrase is different when we do site-level backups
+  set_fact:
+    repo_name: "{{ client + '-' + canonical_hostname + '-' + canonical_bare_url }}"
+    passphrase: "{{ lookup('passwordstore', client + '/' + canonical_hostname + '/' + canonical_bare_url + '/borg/remote') }}"
+  when: monitor_backupninja|bool
 
 - name: create a list of db names
   set_fact:
@@ -27,9 +40,6 @@
     path: "{{ sqldumps_path }}"
     state: directory
     mode: 02770
-  become_user: "{{ run_as_user }}"
-  become: yes
-
 
 # MySQL restore
 - name: Check if db dump files already exist
@@ -51,13 +61,12 @@
 # Acquire a backup from rsync.net
 - block:
   - name: Get the latest backup archive name
-    shell: borg list --last 1 --short --remote-path /usr/local/bin/borg1/borg1 {{ rsyncnet_user }}@{{ rsyncnet_server }}:{{ client + '-' + canonical_hostname }}
+    shell: borg list --last 1 --short --remote-path /usr/local/bin/borg1/borg1 {{ rsyncnet_user }}@{{ rsyncnet_server }}:{{ repo_name }}
     environment:
-      BORG_PASSPHRASE: "{{ lookup('passwordstore', client + '/' + canonical_hostname + '/borg/remote') }}"
-    args:
-      chdir: "{{ sqldumps_path }}"
+      BORG_PASSPHRASE: "{{ passphrase }}"
     register: archive_name
     changed_when: false
+    delegate_to: 127.0.0.1
 
 
   # Download the borg backup of the db dump if we need an update and the borg backup exists.
@@ -67,11 +76,11 @@
       path_depth: "{{ canonical_database_backup_path | default('var/backups/mysql/sqldump',true) | regex_replace('[^\/]', '') | count + 1 }}"
 
   - name: Download the latest copy of the database
-    shell: borg extract --strip-components {{ path_depth }} --remote-path /usr/local/bin/borg1/borg1 {{ rsyncnet_user }}@{{ rsyncnet_server }}:{{ short_name + '-' + canonical_hostname }}::{{ archive_name.stdout }} {{ canonical_database_backup_path | default("var/backups/mysql/sqldump",true) }}/{{ db_name }}.sql.gz
+    shell: borg extract --strip-components {{ path_depth }} --remote-path /usr/local/bin/borg1/borg1 {{ rsyncnet_user }}@{{ rsyncnet_server }}:{{ repo_name }}::{{ archive_name.stdout }} {{ canonical_database_backup_path | default("var/backups/mysql/sqldump",true) }}/{{ db_name }}.sql.gz
     args:
       chdir: "{{ sqldumps_path }}"
     environment:
-      BORG_PASSPHRASE: "{{ lookup('passwordstore', short_name + '/' + canonical_hostname + '/borg/remote') }}"
+      BORG_PASSPHRASE: "{{ passphrase }}"
     with_items: "{{ canonical_db_names_unique }}"
     register: db_downloaded
     loop_control:
@@ -93,7 +102,7 @@
     mysql_db:
       state: dump
       login_user: "{{ canonical_db_user }}"
-      login_password: "{{ lookup('passwordstore', short_name + '/' + canonical_hostname + '/' + canonical_bare_url + '/mysql') }}"
+      login_password: "{{ lookup('passwordstore', client + '/' + canonical_hostname + '/' + canonical_bare_url + '/mysql') }}"
       login_host: "{{ remote_mysql_host }}"
       name: "{{ db_name }}"
       target: "/tmp/{{ db_name }}.sql"
@@ -120,7 +129,7 @@
 # Acquire a backup from Pantheon
 - block:
   - name: Log in to Terminus
-    command: "terminus auth:login --machine-token={{ lookup('passwordstore', short_name + '/pantheonmachinetoken') }}"
+    command: "terminus auth:login --machine-token={{ lookup('passwordstore', client + '/pantheonmachinetoken') }}"
 
   - name: Create a Pantheon backup
     command: "terminus backup:create {{ pantheon_site_code }}.live --element=db --keep-for=1"
