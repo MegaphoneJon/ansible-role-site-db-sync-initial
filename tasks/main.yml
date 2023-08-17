@@ -3,18 +3,18 @@
   set_fact:
     # sync_type not used here, it's present tgo pave the way for remerging with site-db-sync
     sync_type: "{{ sync_type | default('quick', true) }}"
-    client: "{{ short_name | default(canonical_server_client, true) }}"
+    client: "{{ short_name | default(client, true) }}"
 
 - name: Set the repo name and passphase
   set_fact:
-    repo_name: "{{ client + '-' + canonical_hostname }}"
-    passphrase: "{{ lookup('passwordstore', client + '/' + canonical_hostname + '/borg/remote') }}"
+    repo_name: "{{ canonical_server_client + '-' + canonical_hostname }}"
+    passphrase: "{{ lookup('passwordstore', canonical_server_client + '/' + canonical_hostname + '/borg/remote') }}"
   when: db_sync_strategy == 'rsyncnet'
 
 - name: repo name and passhphrase is different when we do site-level backups
   set_fact:
     repo_name: "{{ client + '-' + canonical_hostname + '-' + canonical_bare_url }}"
-    passphrase: "{{ lookup('passwordstore', client + '/' + canonical_hostname + '/' + canonical_bare_url + '/borg/remote') }}"
+    passphrase: "{{ lookup('passwordstore', canonical_server_client + '/' + canonical_hostname + '/' + canonical_bare_url + '/borg/remote') }}"
   when: monitor_backupninja|bool
 
 - name: create a list of db names
@@ -101,7 +101,7 @@
     mysql_db:
       state: dump
       login_user: "{{ canonical_db_user }}"
-      login_password: "{{ lookup('passwordstore', client + '/' + canonical_hostname + '/' + canonical_bare_url + '/mysql') }}"
+      login_password: "{{ lookup('passwordstore', canonical_server_client + '/' + canonical_hostname + '/' + canonical_bare_url + '/mysql') }}"
       login_host: "{{ remote_mysql_host }}"
       name: "{{ db_name }}"
       target: "/tmp/{{ db_name }}.sql"
