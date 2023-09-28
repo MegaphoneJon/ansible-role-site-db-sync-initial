@@ -192,6 +192,7 @@
 - name: Fix wp-load setting
   command: wp eval '$c=[civi_wp()->admin, "add_wpload_setting"]; if (is_callable($c)) $c();' --path={{ webroot }}
   when: cms == 'WordPress' and civicrm == 'Yes'
+  become_user: "{{ run_as_user }}"
   ignore_errors: yes
 
 - name: Do a search/replace for the primary URL
