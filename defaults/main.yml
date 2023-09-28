@@ -1,2 +1,2 @@
 ---
-remote_mysql_host: "localhost"
+remote_db_host: "localhost"

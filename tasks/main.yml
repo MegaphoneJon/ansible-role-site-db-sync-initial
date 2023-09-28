@@ -102,7 +102,7 @@
       state: dump
       login_user: "{{ canonical_db_user }}"
       login_password: "{{ lookup('passwordstore', canonical_server_client + '/' + canonical_hostname + '/' + canonical_bare_url + '/mysql') }}"
-      login_host: "{{ remote_mysql_host }}"
+      login_host: "{{ remote_db_host }}"
       name: "{{ db_name }}"
       target: "/tmp/{{ db_name }}.sql"
       dump_extra_args: --single-transaction=TRUE
