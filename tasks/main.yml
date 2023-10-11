@@ -105,7 +105,7 @@
       login_host: "{{ remote_db_host }}"
       name: "{{ db_name }}"
       target: "/tmp/{{ db_name }}.sql"
-      dump_extra_args: --single-transaction=TRUE
+      single_transaction: true
     with_items: "{{ canonical_db_names_unique }}"
     loop_control:
       loop_var: db_name
