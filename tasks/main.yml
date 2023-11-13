@@ -195,6 +195,12 @@
   become_user: "{{ run_as_user }}"
   ignore_errors: yes
 
+- name: search/replace in wp_blogs for multi-site
+  command: "wp search-replace {{ canonical_bare_url }} {{ bare_url }} wp_blogs --path={{ webroot }}"
+  become_user: "{{ run_as_user }}"
+  when: cms == 'WordPress'
+  ignore_errors: yes
+
 - name: Do a search/replace for the primary URL
   command: "wp search-replace {{ canonical_primary_url }} {{ primary_url }} --path={{ webroot }}"
   become_user: "{{ run_as_user }}"
