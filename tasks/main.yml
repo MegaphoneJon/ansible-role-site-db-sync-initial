@@ -8,13 +8,13 @@
 - name: Set the repo name and passphase
   set_fact:
     repo_name: "{{ canonical_server_client + '-' + canonical_hostname }}"
-    passphrase: "{{ lookup('passwordstore', canonical_server_client + '/' + canonical_hostname + '/borg/remote') }}"
+    passphrase: "{{ lookup('community.general.passwordstore', canonical_server_client + '/' + canonical_hostname + '/borg/remote') }}"
   when: db_sync_strategy == 'rsyncnet'
 
 - name: repo name and passhphrase is different when we do site-level backups
   set_fact:
     repo_name: "{{ client + '-' + canonical_hostname + '-' + canonical_bare_url }}"
-    passphrase: "{{ lookup('passwordstore', canonical_server_client + '/' + canonical_hostname + '/' + canonical_bare_url + '/borg/remote') }}"
+    passphrase: "{{ lookup('community.general.passwordstore', canonical_server_client + '/' + canonical_hostname + '/' + canonical_bare_url + '/borg/remote') }}"
   when: monitor_backupninja|bool
 
 - name: create a list of db names
@@ -101,7 +101,7 @@
     mysql_db:
       state: dump
       login_user: "{{ canonical_db_user }}"
-      login_password: "{{ lookup('passwordstore', canonical_server_client + '/' + canonical_hostname + '/' + canonical_bare_url + '/mysql') }}"
+      login_password: "{{ lookup('community.general.passwordstore', canonical_server_client + '/' + canonical_hostname + '/' + canonical_bare_url + '/mysql') }}"
       login_host: "{{ remote_db_host }}"
       name: "{{ db_name }}"
       target: "/tmp/{{ db_name }}.sql"
@@ -128,7 +128,7 @@
 # Acquire a backup from Pantheon
 - block:
   - name: Log in to Terminus
-    command: "terminus auth:login --machine-token={{ lookup('passwordstore', client + '/pantheonmachinetoken') }}"
+    command: "terminus auth:login --machine-token={{ lookup('community.general.passwordstore', client + '/pantheonmachinetoken') }}"
 
   - name: Create a Pantheon backup
     command: "terminus backup:create {{ pantheon_site_code }}.live --element=db --keep-for=1"
@@ -179,7 +179,7 @@
     target: "{{ sqldumps_path }}/{{ item.0 }}.sql"
     state: import
     login_user: "{{ db_user }}"
-    login_password: "{{ lookup('passwordstore', client + '/' + hostname + '/' + bare_url + '/mysql') }}"
+    login_password: "{{ lookup('community.general.passwordstore', client + '/' + hostname + '/' + bare_url + '/mysql') }}"
   when: item.1 is defined and canonical_primary_url
   with_together:
    - "{{ canonical_db_names_unique }}"
