@@ -9,13 +9,13 @@
   set_fact:
     repo_name: "{{ canonical_server_client + '-' + canonical_hostname }}"
     passphrase: "{{ lookup('community.general.passwordstore', canonical_server_client + '/' + canonical_hostname + '/borg/remote') }}"
-  when: db_sync_strategy == 'rsyncnet'
+  when: db_sync_strategy == 'rsyncnet' and not monitor_backupninja|bool
 
 - name: repo name and passhphrase is different when we do site-level backups
   set_fact:
     repo_name: "{{ client + '-' + canonical_hostname + '-' + canonical_bare_url }}"
     passphrase: "{{ lookup('community.general.passwordstore', canonical_server_client + '/' + canonical_hostname + '/' + canonical_bare_url + '/borg/remote') }}"
-  when: monitor_backupninja|bool
+  when: db_sync_strategy == 'rsyncnet' and monitor_backupninja|bool
 
 - name: create a list of db names
   set_fact:
