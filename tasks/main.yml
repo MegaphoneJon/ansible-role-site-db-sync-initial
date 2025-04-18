@@ -61,7 +61,7 @@
 # Acquire a backup from rsync.net
 - block:
   - name: Get the latest backup archive name
-    shell: borg list --last 1 --short --remote-path /usr/local/bin/borg1/borg1 {{ rsyncnet_user }}@{{ rsyncnet_server }}:{{ repo_name }}
+    shell: borg list --last 1 --short --remote-path borg12 {{ rsyncnet_user }}@{{ rsyncnet_server }}:{{ repo_name }}
     environment:
       BORG_PASSPHRASE: "{{ passphrase }}"
     register: archive_name
@@ -75,7 +75,7 @@
       path_depth: "{{ canonical_database_backup_path | default('var/backups/mysql/sqldump',true) | regex_replace('[^\/]', '') | count + 1 }}"
 
   - name: Download the latest copy of the database
-    shell: borg extract --strip-components {{ path_depth }} --remote-path /usr/local/bin/borg1/borg1 {{ rsyncnet_user }}@{{ rsyncnet_server }}:{{ repo_name }}::{{ archive_name.stdout }} {{ canonical_database_backup_path | default("var/backups/mysql/sqldump",true) }}/{{ db_name }}.sql.gz
+    shell: borg extract --strip-components {{ path_depth }} --remote-path borg12 {{ rsyncnet_user }}@{{ rsyncnet_server }}:{{ repo_name }}::{{ archive_name.stdout }} {{ canonical_database_backup_path | default("var/backups/mysql/sqldump",true) }}/{{ db_name }}.sql.gz
     args:
       chdir: "{{ sqldumps_path }}"
     environment:
