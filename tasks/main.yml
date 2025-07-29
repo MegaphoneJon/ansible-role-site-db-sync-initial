@@ -64,6 +64,7 @@
     shell: borg list --last 1 --short --remote-path borg12 {{ rsyncnet_user }}@{{ rsyncnet_server }}:{{ repo_name }}
     environment:
       BORG_PASSPHRASE: "{{ passphrase }}"
+      BORG_RELOCATED_REPO_ACCESS_IS_OK: "yes"
     register: archive_name
     changed_when: false
 
