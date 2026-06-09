@@ -181,7 +181,7 @@
     state: import
     login_user: "{{ db_user }}"
     login_password: "{{ lookup('community.general.passwordstore', client + '/' + hostname + '/' + bare_url + '/mysql') }}"
-  when: item.1 is defined and canonical_primary_url
+  when: item.1 is defined and canonical_primary_url is defined
   with_together:
    - "{{ canonical_db_names_unique }}"
    - "{{ db_names_unique }}"
