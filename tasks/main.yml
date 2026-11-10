@@ -1,5 +1,5 @@
 ---
-- name: Set some initial facts
+- name: Set some initial facts - site-db-sync-initial
   set_fact:
     # sync_type not used here, it's present tgo pave the way for remerging with site-db-sync
     sync_type: "{{ sync_type | default('quick', true) }}"
@@ -20,11 +20,11 @@
 - name: create a list of db names
   set_fact:
     canonical_db_names:
-      - "{{ canonical_cms_db_name }}"
+      - "{{ canonical_cms_db_name | default(none, true) }}"
       - "{{ canonical_crm_db_name }}"
       - "{{ canonical_crm_logging_db_name | default(canonical_crm_db_name, true) }}"
     db_names:
-      - "{{ cms_db_name }}"
+      - "{{ cms_db_name | default(none, true) }}"
       - "{{ crm_db_name }}"
       - "{{ crm_logging_db_name | default(crm_db_name, true) }}"
 
@@ -44,7 +44,7 @@
 # MySQL restore
 - name: Check if db dump files already exist
   stat:
-    path: "{{ sqldumps_path }}/{{ canonical_cms_db_name }}.sql"
+    path: "{{ sqldumps_path }}/{{ canonical_cms_db_name | default(crm_db_name, true) }}.sql"
   register: db_dump
   become_user: "{{ run_as_user }}"
   become: yes
